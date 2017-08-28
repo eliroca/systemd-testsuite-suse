@@ -109,9 +109,9 @@ static void test_vconsole_convert_to_x11(void) {
         log_info("/* test with known variant, new mapping (es:dvorak) */");
         assert_se(free_and_strdup(&c.vc_keymap, "es-dvorak") >= 0);
 
-        assert_se(vconsole_convert_to_x11(&c) == 0); // FIXME
+        assert_se(vconsole_convert_to_x11(&c) == 1); // FIXME
         assert_se(streq(c.x11_layout, "es"));
-        assert_se(c.x11_variant == NULL); // FIXME: "dvorak"
+        assert_se(streq(c.x11_variant, "dvorak")); // FIXME: "dvorak"
 
         log_info("/* test with old mapping (fr:latin9) */");
         assert_se(free_and_strdup(&c.vc_keymap, "fr-latin9") >= 0);
@@ -187,7 +187,7 @@ static void test_x11_convert_to_vconsole(void) {
         assert_se(free_and_strdup(&c.x11_variant, NULL) >= 0);
 
         assert_se(x11_convert_to_vconsole(&c) == 1);
-        assert_se(streq(c.vc_keymap, "us"));
+        assert_se(streq(c.vc_keymap, "ruwin_alt-UTF-8"));
 
         log_info("/* test with a compound mapping (ru,us:) */");
         assert_se(free_and_strdup(&c.x11_layout, "ru,us") >= 0);
@@ -201,8 +201,8 @@ static void test_x11_convert_to_vconsole(void) {
         assert_se(free_and_strdup(&c.x11_layout, "ru") >= 0);
         assert_se(free_and_strdup(&c.x11_variant, NULL) >= 0);
 
-        assert_se(x11_convert_to_vconsole(&c) == 0);
-        assert_se(streq(c.vc_keymap, "ru"));
+        assert_se(x11_convert_to_vconsole(&c) == 1);
+        assert_se(streq(c.vc_keymap, "ru-cv_latin"));
 }
 
 int main(int argc, char **argv) {
