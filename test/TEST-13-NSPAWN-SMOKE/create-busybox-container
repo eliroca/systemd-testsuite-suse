@@ -8,7 +8,11 @@ root="${1:?Usage $0 container-root}"
 mkdir -p "$root"
 mkdir "$root/bin"
 cp $(type -P busybox) "$root/bin"
-
+mkdir -p "$root/lib"
+mkdir -p "$root/lib64"
+for lib in $(find /lib*/ld*); do
+        cp $lib /var/lib/machines/bind-tmp-path/$lib
+done
 mkdir -p "$root/usr/lib"
 touch "$root/usr/lib/os-release"
 
