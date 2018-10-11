@@ -35,7 +35,7 @@
 #include "util.h"
 
 static const char *catalog_dirs[] = {
-        CATALOG_DIR,
+        "/var/opt/systemd-tests/catalog",
         NULL,
 };
 
