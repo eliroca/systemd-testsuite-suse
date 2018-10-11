@@ -239,7 +239,7 @@ class SysvGeneratorTest(unittest.TestCase):
         self.add_sysv('foo', {'Required-Start': '$named $portmap'})
         s = self.run_generator()[1]['foo.service']
         self.assertEqual(set(s.options('Unit')),
-                         set(['Documentation', 'SourcePath', 'Description', 'After']))
+                         set(['Documentation', 'SourcePath', 'Description', 'After', 'Wants']))
         self.assertEqual(s.get('Unit', 'After').split(), ['nss-lookup.target', 'rpcbind.target'])
 
     def test_lsb_deps(self):
