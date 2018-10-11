@@ -23,7 +23,7 @@
 #include "watchdog.h"
 
 int main(int argc, char *argv[]) {
-        usec_t t = 10 * USEC_PER_SEC;
+        usec_t t = 30 * USEC_PER_SEC;
         unsigned i;
         int r;
 
@@ -40,7 +40,7 @@ int main(int argc, char *argv[]) {
                 if (r < 0)
                         log_warning_errno(r, "Failed to ping watchdog: %m");
 
-                usleep(t/2);
+                usleep(t/6);
         }
 
         watchdog_close(true);
