@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 #
 # networkd integration test
 # This uses temporary configuration in /run and temporary veth devices, and

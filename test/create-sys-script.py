@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 
 OUTFILE_HEADER = """#!/usr/bin/env python3
 #
