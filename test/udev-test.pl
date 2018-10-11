@@ -615,9 +615,9 @@ EOF
                 desc            => "textual group id",
                 devpath         => "/devices/pci0000:00/0000:00:1f.2/host0/target0:0:0/0:0:0:0/block/sda",
                 exp_name        => "node",
-                exp_perms       => ":daemon:0660",
+                exp_perms       => ":disk:0660",
                 rules           => <<EOF
-SUBSYSTEMS=="scsi", KERNEL=="sda", SYMLINK+="node", GROUP="daemon"
+SUBSYSTEMS=="scsi", KERNEL=="sda", SYMLINK+="node", GROUP="disk"
 EOF
         },
         {
