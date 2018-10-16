@@ -68,13 +68,13 @@ START_SEC=$(date -u '+%s')
 systemctl start --wait wait2.service
 END_SEC=$(date -u '+%s')
 ELAPSED=$(($END_SEC-$START_SEC))
-[[ "$ELAPSED" -ge 2 ]] && [[ "$ELAPSED" -le 4 ]] || exit 1
+[[ "$ELAPSED" -ge 2 ]] && [[ "$ELAPSED" -le 5 ]] || exit 1
 
 # wait5fail fails, so systemctl should fail
 START_SEC=$(date -u '+%s')
 ! systemctl start --wait wait2.service wait5fail.service || exit 1
 END_SEC=$(date -u '+%s')
 ELAPSED=$(($END_SEC-$START_SEC))
-[[ "$ELAPSED" -ge 5 ]] && [[ "$ELAPSED" -le 7 ]] || exit 1
+[[ "$ELAPSED" -ge 5 ]] && [[ "$ELAPSED" -le 8 ]] || exit 1
 
 touch /testok
