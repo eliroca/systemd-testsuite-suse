@@ -61,13 +61,13 @@ EOF
         install_dmevent
         generate_module_dependencies
         cat >$initdir/etc/crypttab <<EOF
-$DM_NAME UUID=$ID_FS_UUID /etc/varkey
+$DM_NAME UUID=$ID_FS_UUID /etc/varkey   x-systemd.device-timeout=300
 EOF
         echo -n test > $initdir/etc/varkey
         cat $initdir/etc/crypttab | ddebug
 
         cat >>$initdir/etc/fstab <<EOF
-/dev/mapper/varcrypt    /var    ext3    defaults 0 1
+/dev/mapper/varcrypt    /var    ext3    defaults,x-systemd.device-timeout=300 0 1
 EOF
     ) || return 1
 
