@@ -31,5 +31,5 @@ systemctl daemon-reload
 
 systemctl mask my.timer
 
-touch /testok
+echo SUSEtest OK > /testok
 rm /failed
