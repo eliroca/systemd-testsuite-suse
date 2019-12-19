@@ -50,6 +50,6 @@ then
     cp "${TL}" /test.log
     exit 1
 else
-    touch /testok
+    echo SUSEtest OK > /testok
     exit 0
 fi

@@ -14,13 +14,14 @@ test_setup() {
         eval $(udevadm info --export --query=env --name=${LOOPDEV}p2)
 
         setup_basic_environment
-        mask_supporting_services
 
         for s in success-all success-start success-stop success-runtime \
                  fail-start fail-stop fail-runtime
         do
             cp testsuite-${s}.service ${initdir}/etc/systemd/system
         done
+
+        echo "testservice=$initdir/etc/systemd/system/testsuite.service"
         cp testsuite.service ${initdir}/etc/systemd/system
 
         cp extend_timeout_test_service.sh ${initdir}/
@@ -30,6 +31,8 @@ test_setup() {
     )
 
     setup_nspawn_root
+
+    mask_supporting_services_nspawn
 }
 
 do_test "$@"
