@@ -14,10 +14,10 @@ test_setup() {
         eval $(udevadm info --export --query=env --name=${LOOPDEV}p2)
 
         setup_basic_environment
-        mask_supporting_services
         dracut_install cat mv stat nc
 
         # setup the testsuite service
+        echo "testservice=$initdir/etc/systemd/system/testsuite.service"
         cat >$initdir/etc/systemd/system/testsuite.service <<EOF
 [Unit]
 Description=Testsuite service
@@ -76,7 +76,7 @@ echo D | nc -w1 -U /run/test.socket
 [[ "$(stat --format='%G' /run/test.socket)" == adm ]]
 
 
-touch /testok
+echo SUSEtest OK > /testok
 EOF
 
         chmod 0755 $initdir/test-socket-group.sh
@@ -84,6 +84,9 @@ EOF
     )
 
     setup_nspawn_root
+
+    mask_supporting_services_nspawn
+    mask_supporting_services
 }
 
 do_test "$@"
