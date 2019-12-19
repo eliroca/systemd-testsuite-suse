@@ -7,6 +7,7 @@ Wants=getty-pre.target
 [Service]
 WorkingDirectory=/testsuite
 ExecStart=/testsuite/run-tmpfiles-tests.sh
+ExecStartPost=/bin/sh -x -c 'systemctl --state=failed --no-pager > /failed; echo SUSEtest OK > /testok'
 Type=oneshot
-StandardOutput=tty
-StandardError=tty
+StandardOutput=kmsg
+StandardError=kmsg
