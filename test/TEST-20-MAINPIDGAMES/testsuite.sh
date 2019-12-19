@@ -3,7 +3,7 @@ set -ex
 set -o pipefail
 
 systemd-analyze log-level debug
-systemd-analyze log-target console
+systemd-analyze log-target kmsg
 
 test `systemctl show -p MainPID --value testsuite.service` -eq $$
 
@@ -75,7 +75,7 @@ echo \$MAINPID > /run/mainpidsh/pid
 EOF
 chmod +x /tmp/mainpid.sh
 
-systemd-run --unit=mainpidsh.service -p StandardOutput=tty -p StandardError=tty -p Type=forking -p RuntimeDirectory=mainpidsh -p PIDFile=/run/mainpidsh/pid /tmp/mainpid.sh
+systemd-run --unit=mainpidsh.service -p StandardOutput=kmsg -p StandardError=kmsg -p Type=forking -p RuntimeDirectory=mainpidsh -p PIDFile=/run/mainpidsh/pid /tmp/mainpid.sh
 test `systemctl show -p MainPID --value mainpidsh.service` -eq `cat /run/mainpidsh/pid`
 
 cat >/tmp/mainpid2.sh <<EOF
@@ -100,7 +100,7 @@ chown 1001:1001 /run/mainpidsh2/pid
 EOF
 chmod +x /tmp/mainpid2.sh
 
-systemd-run --unit=mainpidsh2.service -p StandardOutput=tty -p StandardError=tty -p Type=forking -p RuntimeDirectory=mainpidsh2 -p PIDFile=/run/mainpidsh2/pid /tmp/mainpid2.sh
+systemd-run --unit=mainpidsh2.service -p StandardOutput=kmsg -p StandardError=kmsg -p Type=forking -p RuntimeDirectory=mainpidsh2 -p PIDFile=/run/mainpidsh2/pid /tmp/mainpid2.sh
 test `systemctl show -p MainPID --value mainpidsh2.service` -eq `cat /run/mainpidsh2/pid`
 
 cat >/dev/shm/mainpid3.sh <<EOF
@@ -127,13 +127,13 @@ EOF
 chmod 755 /dev/shm/mainpid3.sh
 
 # This has to fail, as we shouldn't accept the dangerous PID file, and then inotify-wait on it to be corrected which we never do
-! systemd-run --unit=mainpidsh3.service -p StandardOutput=tty -p StandardError=tty -p Type=forking -p RuntimeDirectory=mainpidsh3 -p PIDFile=/run/mainpidsh3/pid -p DynamicUser=1 -p TimeoutStartSec=2s /dev/shm/mainpid3.sh
+! systemd-run --unit=mainpidsh3.service -p StandardOutput=kmsg -p StandardError=kmsg -p Type=forking -p RuntimeDirectory=mainpidsh3 -p PIDFile=/run/mainpidsh3/pid -p DynamicUser=1 -p TimeoutStartSec=2s /dev/shm/mainpid3.sh
 
 # Test that this failed due to timeout, and not some other error
 test `systemctl show -p Result --value mainpidsh3.service` = timeout
 
 systemd-analyze log-level info
 
-echo OK > /testok
+echo SUSEtest OK > /testok
 
 exit 0
