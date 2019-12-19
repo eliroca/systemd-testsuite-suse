@@ -9,6 +9,12 @@ mkdir -p "$root"
 mkdir "$root/bin"
 cp $(type -P busybox) "$root/bin"
 
+mkdir -p "$root/lib"
+mkdir -p "$root/lib64"
+for lib in $(find /lib*/ld*); do
+    [[ -d $root/$(dirname $lib) ]] || mkdir -p $root/$(dirname $lib)
+    cp $lib $root/$lib
+done
 mkdir -p "$root/usr/lib"
 touch "$root/usr/lib/os-release"
 

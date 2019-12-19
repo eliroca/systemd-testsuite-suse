@@ -3,24 +3,42 @@ set -e
 TEST_DESCRIPTION="systemd-nspawn smoke test"
 TEST_NO_NSPAWN=1
 
+export TEST_BASE_DIR=/var/opt/systemd-tests/test
 . $TEST_BASE_DIR/test-functions
 
+test_run() {
+    ret=1
+    systemctl daemon-reload
+    systemctl start testsuite.service || return 1
+    systemctl status --full testsuite.service
+    if [ -z "$TEST_NO_NSPAWN" ]; then
+        if run_nspawn; then
+            check_result_nspawn || return 1
+        else
+            dwarn "can't run systemd-nspawn, skipping"
+        fi
+    fi
+    test -s /failed && ret=$(($ret+1))
+    [[ -e /testok ]] && ret=0
+    return $ret
+}
+
 test_setup() {
-    create_empty_image_rootdir
+    mkdir -p $TESTDIR/root
+    initdir=$TESTDIR/root
+    STRIP_BINARIES=no
 
     # Create what will eventually be our root filesystem onto an overlay
     (
         LOG_LEVEL=5
-        eval $(udevadm info --export --query=env --name=${LOOPDEV}p2)
 
         setup_basic_environment
-        mask_supporting_services
         dracut_install busybox chmod rmdir unshare ip sysctl
 
-        cp create-busybox-container $initdir/
+        cp create-busybox-container /
 
-        ./create-busybox-container $initdir/nc-container
-        initdir="$initdir/nc-container" dracut_install nc ip
+        /create-busybox-container /nc-container
+        initdir="/nc-container" dracut_install nc
 
         # setup the testsuite service
         cat >$initdir/etc/systemd/system/testsuite.service <<EOF
@@ -28,8 +46,11 @@ test_setup() {
 Description=Testsuite service
 
 [Service]
-ExecStart=/test-nspawn.sh
+ExecStart=$initdir/test-nspawn.sh
+ExecStartPost=/bin/sh -x -c 'systemctl --state=failed --no-pager > /failed; echo SUSEtest OK > /testok'
 Type=oneshot
+StandardOutput=kmsg
+StandardError=kmsg
 EOF
 
         cat >$initdir/test-nspawn.sh <<'EOF'
@@ -71,7 +92,7 @@ function check_bind_tmp_path {
     local _root="/var/lib/machines/bind-tmp-path"
     /create-busybox-container "$_root"
     >/tmp/bind
-    systemd-nspawn --register=no -D "$_root" --bind=/tmp/bind /bin/sh -c 'test -e /tmp/bind'
+    systemd-nspawn --bind /lib64 --bind /usr/lib64 --register=no -D "$_root" --bind=/tmp/bind /bin/sh -c 'test -e /tmp/bind'
 }
 
 function check_norbind {
@@ -82,14 +103,14 @@ function check_norbind {
     mount -t tmpfs tmpfs /tmp/binddir/subdir
     echo -n "inner" > /tmp/binddir/subdir/file
     /create-busybox-container "$_root"
-    systemd-nspawn --register=no -D "$_root" --bind=/tmp/binddir:/mnt:norbind /bin/sh -c 'CONTENT=$(cat /mnt/subdir/file); if [[ $CONTENT != "outer" ]]; then echo "*** unexpected content: $CONTENT"; return 1; fi'
+    systemd-nspawn --bind /lib64 --register=no -D "$_root" --bind /lib64 --bind /usr/lib64 --bind=/tmp/binddir:/mnt:norbind /bin/sh -c 'CONTENT=$(cat /mnt/subdir/file); if [[ $CONTENT != "outer" ]]; then echo "*** unexpected content: $CONTENT"; return 1; fi'
 }
 
 function check_notification_socket {
     # https://github.com/systemd/systemd/issues/4944
     local _cmd='echo a | $(busybox which nc) -U -u -w 1 /run/systemd/nspawn/notify'
-    systemd-nspawn --register=no -D /nc-container /bin/sh -x -c "$_cmd"
-    systemd-nspawn --register=no -D /nc-container -U /bin/sh -x -c "$_cmd"
+    systemd-nspawn --bind /lib64 --bind /usr/lib64 --register=no -D /nc-container /bin/sh -x -c "$_cmd"
+    systemd-nspawn --bind /lib64 --bind /usr/lib64 --register=no -D /nc-container -U /bin/sh -x -c "$_cmd"
 }
 
 function run {
@@ -104,16 +125,16 @@ function run {
 
     local _root="/var/lib/machines/unified-$1-cgns-$2-api-vfs-writable-$3"
     /create-busybox-container "$_root"
-    SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --register=no -D "$_root" -b
-    SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --register=no -D "$_root" --private-network -b
+    SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --bind /lib64 --bind /usr/lib64 --register=no -D "$_root" -b
+    SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --bind /lib64 --bind /usr/lib64 --register=no -D "$_root" --private-network -b
 
-    if SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --register=no -D "$_root" -U -b; then
+    if SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --bind /lib64 --bind /usr/lib64 --register=no -D "$_root" -U -b; then
        [[ "$is_user_ns_supported" = "yes" && "$3" = "network" ]] && return 1
     else
        [[ "$is_user_ns_supported" = "no" && "$3" = "network" ]] && return 1
     fi
 
-    if SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --register=no -D "$_root" --private-network -U -b; then
+    if SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --bind /lib64 --bind /usr/lib64 --register=no -D "$_root" --private-network -U -b; then
        [[ "$is_user_ns_supported" = "yes" && "$3" = "yes" ]] && return 1
     else
        [[ "$is_user_ns_supported" = "no" && "$3" = "yes" ]] && return 1
@@ -122,42 +143,42 @@ function run {
     local _netns_opt="--network-namespace-path=/proc/self/ns/net"
 
     # --network-namespace-path and network-related options cannot be used together
-    if SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --register=no -D "$_root" "$_netns_opt" --network-interface=lo -b; then
+    if SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --bind /lib64 --bind /usr/lib64 --register=no -D "$_root" "$_netns_opt" --network-interface=lo -b; then
        return 1
     fi
 
-    if SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --register=no -D "$_root" "$_netns_opt" --network-macvlan=lo -b; then
+    if SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --bind /lib64 --bind /usr/lib64 --register=no -D "$_root" "$_netns_opt" --network-macvlan=lo -b; then
        return 1
     fi
 
-    if SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --register=no -D "$_root" "$_netns_opt" --network-ipvlan=lo -b; then
+    if SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --bind /lib64 --bind /usr/lib64 --register=no -D "$_root" "$_netns_opt" --network-ipvlan=lo -b; then
        return 1
     fi
 
-    if SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --register=no -D "$_root" "$_netns_opt" --network-veth -b; then
+    if SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --bind /lib64 --register=no -D "$_root" "$_netns_opt" --network-veth -b; then
        return 1
     fi
 
-    if SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --register=no -D "$_root" "$_netns_opt" --network-veth-extra=lo -b; then
+    if SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --bind /lib64 --bind /usr/lib64 --register=no -D "$_root" "$_netns_opt" --network-veth-extra=lo -b; then
        return 1
     fi
 
-    if SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --register=no -D "$_root" "$_netns_opt" --network-bridge=lo -b; then
+    if SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --bind /lib64 --bind /usr/lib64 --register=no -D "$_root" "$_netns_opt" --network-bridge=lo -b; then
        return 1
     fi
 
-    if SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --register=no -D "$_root" "$_netns_opt" --network-zone=zone -b; then
+    if SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --bind /lib64 --bind /usr/lib64 --register=no -D "$_root" "$_netns_opt" --network-zone=zone -b; then
        return 1
     fi
 
-    if SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --register=no -D "$_root" "$_netns_opt" --private-network -b; then
+    if SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --bind /lib64 --bind /usr/lib64 --register=no -D "$_root" "$_netns_opt" --private-network -b; then
        return 1
     fi
 
     # test --network-namespace-path works with a network namespace created by "ip netns"
     ip netns add nspawn_test
     _netns_opt="--network-namespace-path=/run/netns/nspawn_test"
-    SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --register=no -D "$_root" "$_netns_opt" /bin/ip a | grep -v -E '^1: lo.*UP'
+    SYSTEMD_NSPAWN_UNIFIED_HIERARCHY="$1" SYSTEMD_NSPAWN_USE_CGNS="$2" SYSTEMD_NSPAWN_API_VFS_WRITABLE="$3" systemd-nspawn --bind /lib64 --bind /usr/lib64 --register=no -D "$_root" "$_netns_opt" /bin/ip a | grep -v -E '^1: lo.*UP'
     local r=$?
     ip netns del nspawn_test
 
@@ -185,8 +206,25 @@ touch /testok
 EOF
 
         chmod 0755 $initdir/test-nspawn.sh
+        for service in testsuite.service; do
+            cp $initdir/etc/systemd/system/$service /etc/systemd/system/
+        done
         setup_testsuite
     )
+
+    mask_supporting_services
+}
+
+test_cleanup() {
+    for service in testsuite.service; do
+         rm /etc/systemd/system/$service
+    done
+    rm /create-busybox-container
+    rm -r /nc-container
+    [[ -e /testok ]] && rm /testok
+    [[ -e /failed ]] && rm /failed
+    return 0
+
 }
 
 do_test "$@"
