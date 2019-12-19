@@ -3,6 +3,7 @@ set -e
 TEST_DESCRIPTION="Job-related tests"
 TEST_NO_QEMU=1
 
+export TEST_BASE_DIR=/var/opt/systemd-tests/test
 . $TEST_BASE_DIR/test-functions
 
 test_setup() {
@@ -14,9 +15,10 @@ test_setup() {
         eval $(udevadm info --export --query=env --name=${LOOPDEV}p2)
 
         setup_basic_environment
-        mask_supporting_services
+        mask_supporting_services_nspawn
 
         # setup the testsuite service
+        echo "testservice=$initdir/etc/systemd/system/testsuite.service"
         cat >$initdir/etc/systemd/system/testsuite.service <<EOF
 [Unit]
 Description=Testsuite service

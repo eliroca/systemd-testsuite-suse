@@ -94,4 +94,4 @@ ELAPSED=$(($END_SEC-$START_SEC))
 [[ "$ELAPSED" -ge 3 ]] && [[ "$ELAPSED" -le 5 ]] || exit 1
 [[ "$RESULT" -ne 0 ]] || exit 1
 
-touch /testok
+echo "SUSEtest OK" > /testok
