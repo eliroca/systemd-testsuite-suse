@@ -424,4 +424,4 @@ test_template_dropins
 test_alias_dropins
 test_masked_dropins
 
-touch /testok
+echo SUSEtest OK > /testok
