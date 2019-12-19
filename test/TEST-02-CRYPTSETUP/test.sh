@@ -3,87 +3,96 @@ set -e
 TEST_DESCRIPTION="cryptsetup systemd setup"
 TEST_NO_NSPAWN=1
 
+export TEST_BASE_DIR="/var/opt/systemd-tests/test/"
 . $TEST_BASE_DIR/test-functions
 
-check_result_qemu() {
+test_run() {
     ret=1
-    mkdir -p $initdir
-    mount ${LOOPDEV}p1 $initdir
-    [[ -e $initdir/testok ]] && ret=0
-    [[ -f $initdir/failed ]] && cp -a $initdir/failed $TESTDIR
-    cryptsetup luksOpen ${LOOPDEV}p2 varcrypt <$TESTDIR/keyfile
-    mount /dev/mapper/varcrypt $initdir/var
-    cp -a $initdir/var/log/journal $TESTDIR
-    umount $initdir/var
-    umount $initdir
-    cryptsetup luksClose /dev/mapper/varcrypt
-    [[ -f $TESTDIR/failed ]] && cat $TESTDIR/failed
-    ls -l $TESTDIR/journal/*/*.journal
-    test -s $TESTDIR/failed && ret=$(($ret+1))
+    systemctl daemon-reload
+    systemctl start testsuite.service || return 1
+    systemctl status --full testsuite.service
+
+    if [ -z "$TEST_NO_NSPAWN" ]; then
+        if run_nspawn; then
+            check_result_nspawn || return 1
+        else
+            dwarn "can't run systemd-nspawn, skipping"
+        fi
+    fi
+    test -s /failed && ret=$(($ret+1))
+    [[ -e /testok ]] && ret=0
+
     return $ret
 }
 
-
 test_setup() {
-    create_empty_image_rootdir
-    echo -n test >$TESTDIR/keyfile
-    cryptsetup -q luksFormat --pbkdf pbkdf2 --pbkdf-force-iterations 1000 ${LOOPDEV}p2 $TESTDIR/keyfile
-    cryptsetup luksOpen ${LOOPDEV}p2 varcrypt <$TESTDIR/keyfile
-    mkfs.ext4 -L var /dev/mapper/varcrypt
-    mkdir -p $initdir/var
-    mount /dev/mapper/varcrypt $initdir/var
+    mkdir -p $TESTDIR/root
+    initdir=$TESTDIR/root
+    STRIP_BINARIES=no
 
-    # Create what will eventually be our root filesystem onto an overlay
+    sfdisk --force "/dev/vdb" <<EOF
+,2000M
+,
+EOF
+
+    echo -n test >$TESTDIR/keyfile
+    cryptsetup -q luksFormat /dev/vdb1 $TESTDIR/keyfile
+    cryptsetup luksOpen /dev/vdb1 varcrypt <$TESTDIR/keyfile
+    mkfs.ext3 -L var /dev/mapper/varcrypt
+    sed -i 's/ \/var / \/mnt /' /etc/fstab
+
     (
         LOG_LEVEL=5
         eval $(udevadm info --export --query=env --name=/dev/mapper/varcrypt)
-        eval $(udevadm info --export --query=env --name=${LOOPDEV}p2)
-
-        setup_basic_environment
-        mask_supporting_services
+        eval $(udevadm info --export --query=env --name=/dev/vdb1)
 
         # setup the testsuite service
-        cat >$initdir/etc/systemd/system/testsuite.service <<EOF
+        cat >/etc/systemd/system/testsuite.service <<EOF
 [Unit]
 Description=Testsuite service
 After=multi-user.target
 
 [Service]
-ExecStart=/bin/sh -x -c 'systemctl --state=failed --no-legend --no-pager > /failed ; echo OK > /testok'
+ExecStart=/bin/sh -e -x -c 'systemctl --state=failed --no-pager > /failed ; systemctl daemon-reload ; echo SUSEtest OK > /testok'
+ExecStartPost=/bin/sh -x -c "cat /proc/mounts | /usr/bin/sed -n '/ \/var /p' >> /testok"
 Type=oneshot
 EOF
 
-        setup_testsuite
-
-        install_dmevent
-        generate_module_dependencies
-        cat >$initdir/etc/crypttab <<EOF
+        cat >/etc/crypttab <<EOF
 $DM_NAME UUID=$ID_FS_UUID /etc/varkey
 EOF
-        echo -n test > $initdir/etc/varkey
-        cat $initdir/etc/crypttab | ddebug
+        echo -n test > /etc/varkey
+        cat /etc/crypttab | ddebug
 
-        cat >>$initdir/etc/fstab <<EOF
+        cat >>/etc/fstab <<EOF
 /dev/mapper/varcrypt    /var    ext4    defaults 0 1
 EOF
     )
-}
 
-cleanup_root_var() {
-    ddebug "umount $initdir/var"
-    mountpoint $initdir/var && umount $initdir/var
-    [[ -b /dev/mapper/varcrypt ]] && cryptsetup luksClose /dev/mapper/varcrypt
+    mount /dev/mapper/varcrypt /mnt
+    cp -avr /var/* /mnt
+    umount /mnt
+    cryptsetup luksClose /dev/mapper/varcrypt
+
+    mask_supporting_services
 }
 
 test_cleanup() {
-    # ignore errors, so cleanup can continue
-    cleanup_root_var || :
-    _test_cleanup
-}
+    sed -i '/varcrypt/d' /etc/fstab
+    sed -i 's/ \/mnt / \/var /' /etc/fstab
 
-test_setup_cleanup() {
-    cleanup_root_var
-    _test_setup_cleanup
+    for service in testsuite.service; do
+        rm /etc/systemd/system/$service
+    done
+    [[ -e /testok ]] && rm /testok
+    [[ -e /failed ]] && rm /failed
+
+    rm -r /mnt/tmp/systemd-test.*
+    rm /etc/systemd/system/testsuite.service
+    rm /etc/varkey
+    rm /etc/crypttab
+    dd if=/dev/zero of=/dev/vdb count=100
+    return 0
 }
 
 do_test "$@"
