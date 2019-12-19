@@ -11,23 +11,41 @@ TEST_NO_NSPAWN=1
 # Check if selinux-policy-devel is installed, and if it isn't bail out early instead of failing
 test -f /usr/share/selinux/devel/include/system/systemd.if || exit 0
 
+export TEST_BASE_DIR=/var/opt/systemd-tests/test
 . $TEST_BASE_DIR/test-functions
 SETUP_SELINUX=yes
 KERNEL_APPEND="$KERNEL_APPEND selinux=1 security=selinux"
 
+test_run() {
+    ret=1
+    systemctl daemon-reload
+    systemctl start testsuite.service || return 1
+    systemctl status --full testsuite.service
+    if [ -z "$TEST_NO_NSPAWN" ]; then
+        if run_nspawn; then
+            check_result_nspawn || return 1
+        else
+            dwarn "can't run systemd-nspawn, skipping"
+        fi
+    fi
+    test -s /failed && ret=$(($ret+1))
+    [[ -e /testok ]] && ret=0
+    return $ret
+}
+
 test_setup() {
-    create_empty_image_rootdir
+    mkdir -p $TESTDIR/root
+    initdir=$TESTDIR/root
+    STRIP_BINARIES=no
 
     # Create what will eventually be our root filesystem onto an overlay
     (
         LOG_LEVEL=5
-        eval $(udevadm info --export --query=env --name=${LOOPDEV}p2)
 
         setup_basic_environment
-        mask_supporting_services
 
         # setup the testsuite service
-        cat <<EOF >$initdir/etc/systemd/system/testsuite.service
+        cat >$initdir/etc/systemd/system/testsuite.service <<EOF
 [Unit]
 Description=Testsuite service
 
@@ -92,6 +110,23 @@ EOF
         dracut_install runcon
         dracut_install checkmodule semodule semodule_package m4 make /usr/libexec/selinux/hll/pp load_policy sefcontext_compile
     )
+
+    setup_nspawn_root
+    rm -r $TESTDIR/root
+
+    mask_supporting_services
 }
+
+test_cleanup() {
+    for service in hello.service sleep.service hello-after-sleep.target unstoppable.service testsuite.service; do
+         rm /etc/systemd/system/$service
+    done
+    [[ -e /testok ]] && rm /testok
+    [[ -e /failed ]] && rm /failed
+    return 0
+
+}
+
+
 
 do_test "$@"
