@@ -2,6 +2,7 @@
 set -e
 TEST_DESCRIPTION="FailureAction= operation"
 
+export TEST_BASE_DIR=/var/opt/systemd-tests/test
 . $TEST_BASE_DIR/test-functions
 QEMU_TIMEOUT=600
 
@@ -13,7 +14,6 @@ test_setup() {
         eval $(udevadm info --export --query=env --name=${LOOPDEV}p2)
 
         setup_basic_environment
-        mask_supporting_services
 
         # setup the testsuite service
         cat >$initdir/etc/systemd/system/testsuite.service <<EOF
@@ -22,6 +22,7 @@ Description=Testsuite service
 
 [Service]
 ExecStart=/bin/bash -x /testsuite.sh
+ExecStopPost=/bin/sh -x -c 'systemctl --state=failed --no-pager > /failed'
 Type=oneshot
 EOF
         cp testsuite.sh $initdir/
@@ -30,6 +31,9 @@ EOF
     )
 
     setup_nspawn_root
+
+    mask_supporting_services_nspawn
+
 }
 
 do_test "$@"

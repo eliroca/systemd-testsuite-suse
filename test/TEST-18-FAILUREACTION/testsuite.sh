@@ -9,7 +9,7 @@ if ! test -f /firstphase ; then
     echo OK > /firstphase
     systemd-run --wait -p SuccessAction=reboot true
 else
-    echo OK > /testok
+    echo SUSEtest OK > /testok
     systemd-run --wait -p FailureAction=poweroff false
 fi
 
