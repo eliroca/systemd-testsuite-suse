@@ -3,7 +3,7 @@ set -ex
 set -o pipefail
 
 systemd-analyze log-level debug
-systemd-analyze log-target console
+systemd-analyze log-target kmsg
 
 # Create a binary for which execve() will fail
 touch /tmp/brokenbinary
@@ -29,6 +29,6 @@ systemctl stop seven.service
 
 systemd-analyze log-level info
 
-echo OK > /testok
+echo SUSEtest OK > /testok
 
 exit 0
