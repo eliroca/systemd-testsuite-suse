@@ -45,6 +45,6 @@ EOF
 
 systemd-analyze log-level info
 
-echo OK > /testok
+echo SUSE testOK > /testok
 
 exit 0
