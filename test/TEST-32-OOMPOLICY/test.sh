@@ -3,11 +3,13 @@ set -e
 TEST_DESCRIPTION="test OOM killer logic"
 TEST_NO_NSPAWN=1
 
+export TEST_BASE_DIR=/var/opt/systemd-tests/test
 . $TEST_BASE_DIR/test-functions
 
 UNIFIED_CGROUP_HIERARCHY=yes
 
 test_setup() {
+    initdir=$TESTDIR/root
     create_empty_image_rootdir
 
     (
@@ -27,10 +29,33 @@ ExecStart=/testsuite.sh
 Type=oneshot
 MemoryAccounting=yes
 EOF
-        cp testsuite.sh $initdir/
+        cp testsuite.sh /
+
+        for service in testsuite.service; do
+            cp $initdir/etc/systemd/system/$service /etc/systemd/system/
+        done
 
         setup_testsuite
     )
+}
+
+test_run() {
+    ret=1
+    systemctl daemon-reload
+    systemctl start testsuite.service || return 1
+    ! systemctl -q is-failed testsuite.service
+    test -s /failed && ret=$(($ret+1))
+    [[ -e /testok ]] && ret=0
+    return $ret
+}
+
+test_cleanup() {
+    for service in testsuite.service; do
+         rm /etc/systemd/system/$service
+    done
+    [[ -e /testok ]] && rm /testok
+    [[ -e /failed ]] && rm /failed
+    return 0
 }
 
 do_test "$@"
