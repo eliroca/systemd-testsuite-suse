@@ -26,6 +26,6 @@ systemctl unset-environment FOO PATH
 ! (systemctl show-environment | grep -q '^PATH=.*testaddition$')
 systemctl show-environment | grep -q '^PATH='
 
-echo OK > /testok
+echo SUSE testOK > /testok
 
 exit 0
