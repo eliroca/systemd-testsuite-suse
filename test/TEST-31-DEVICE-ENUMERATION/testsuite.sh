@@ -6,5 +6,5 @@ if journalctl -b -t systemd --grep '\.device: Changed plugged -> dead'; then
     exit 1
 fi
 
-echo OK > /testok
+echo SUSE testOK > /testok
 exit 0
