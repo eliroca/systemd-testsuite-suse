@@ -314,6 +314,6 @@ systemctl clean testservice.socket --what=all
 ! test -e /var/cache/testsocket
 ! test -e /var/log/testsocket
 
-echo OK > /testok
+echo SUSE testOK > /testok
 
 exit 0
