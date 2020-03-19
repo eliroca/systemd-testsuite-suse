@@ -121,6 +121,6 @@ machinectl remove scratch4
 
 rm -rf /var/tmp/scratch
 
-echo OK > /testok
+echo SUSEtest OK > /testok
 
 exit 0
