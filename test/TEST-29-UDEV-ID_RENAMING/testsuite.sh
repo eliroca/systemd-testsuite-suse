@@ -38,6 +38,6 @@ STATE=$(systemctl show --property=ActiveState --value sys-devices-virtual-net-lo
 rm -f /run/udev/rules.d/50-testsuite.rules
 udevadm control --reload --timeout=600
 
-echo OK > /testok
+echo SUSE testOK > /testok
 
 exit 0
