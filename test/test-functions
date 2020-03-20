@@ -33,6 +33,7 @@ if ! ROOTLIBDIR=$(pkg-config --variable=systemdutildir systemd); then
     ROOTLIBDIR=/usr/lib/systemd
 fi
 
+BUILD_DIR=/var/opt/systemd-tests
 PATH_TO_INIT=$ROOTLIBDIR/systemd
 [ "$SYSTEMD_JOURNALD" ] || SYSTEMD_JOURNALD=$(which -a $BUILD_DIR/systemd-journald $ROOTLIBDIR/systemd-journald 2>/dev/null | grep '^/' -m1)
 [ "$SYSTEMD" ] || SYSTEMD=$(which -a $BUILD_DIR/systemd $ROOTLIBDIR/systemd 2>/dev/null | grep '^/' -m1)
@@ -40,9 +41,9 @@ PATH_TO_INIT=$ROOTLIBDIR/systemd
 [ "$JOURNALCTL" ] || JOURNALCTL=$(which -a $BUILD_DIR/journalctl journalctl 2>/dev/null | grep '^/' -m1)
 
 BASICTOOLS="test sh bash setsid loadkeys setfont login sulogin gzip sleep echo head tail cat mount umount cryptsetup date dmsetup modprobe sed cmp tee rm true false chmod chown ln xargs"
-DEBUGTOOLS="df free ls stty ps ln ip route dmesg dhclient mkdir cp ping dhclient strace less grep id tty touch du sort hostname find vi mv"
+DEBUGTOOLS="df free ls stty ps ln ip dmesg dhclient mkdir cp ping strace less grep id tty touch du sort hostname find vi mv passwd"
 
-STATEDIR="${BUILD_DIR:-.}/test/$(basename $(dirname $(realpath $0)))"
+STATEDIR="."
 STATEFILE="$STATEDIR/.testdir"
 TESTLOG="$STATEDIR/test.log"
 
@@ -103,9 +104,9 @@ function find_qemu_bin() {
 
     [ "$ARCH" ] || ARCH=$(uname -m)
     case $ARCH in
-    x86_64)
+    x86_64|s390x|aarch64)
         # QEMU's own build system calls it qemu-system-x86_64
-        [ "$QEMU_BIN" ] || QEMU_BIN=$(which -a qemu-system-x86_64 2>/dev/null | grep '^/' -m1)
+        [ "$QEMU_BIN" ] || QEMU_BIN=$(which -a qemu-system-$ARCH 2>/dev/null | grep '^/' -m1)
         ;;
     i*86)
         # new i386 version of QEMU
@@ -141,6 +142,40 @@ run_qemu() {
     if [[ ! "$KERNEL_BIN" ]]; then
         if [[ "$LOOKS_LIKE_ARCH" ]]; then
             KERNEL_BIN=/boot/vmlinuz-linux
+       elif [[ "$LOOKS_LIKE_SUSE" ]]; then
+        [ "$ARCH" ] || ARCH=$(uname -m)
+        case $ARCH in
+            aarch64)
+                KERNEL_BIN=$(ls /boot/Image-$KERNEL_VER)
+                PARAMS+=" console=ttyAMA0 "
+                DRIVEOPTS+="if=none,id=hd0"
+                QEMUOPTS=" -cpu cortex-a57 -M virt"
+                DEVICEOPTS="-device ahci,id=ahci -device ide-hd,drive=hd0,bus=ahci.0"
+                ;;
+            ppc64*)
+                PARAMS+=" console=hvc0 "
+                DRIVEOPTS+="if=none,id=scsi0"
+                QEMUOPTS=" -M pseries"
+                DEVICEOPTS="-device virtio-scsi-pci -device scsi-hd,drive=scsi0"
+                ;;
+            s390*)
+                KERNEL_BIN=$(ls /boot/zipl/image-$KERNEL_VER)
+                default_suse_initrd=/boot/zipl/initrd-${KERNEL_VER}
+                DRIVEOPTS+="if=none,id=scsi0"
+                QEMUOPTS=" -M s390-ccw-virtio"
+                S390ZIPLDEV=$(sed -n '/boot\/zipl/s/\([[:graph:]]*\).*/\1/p' /etc/fstab)
+                CHAN=$(echo $S390ZIPLDEV | sed -n 's/.*ccw-[0-9]\([[:graph:]]*\)-part.*/fe\1/p')
+                DASDDEV=$(ls -l $S390ZIPLDEV | sed -n 's/.*\(vd[a-z]*\)[[:digit:]]*/\/dev\/\1/p')
+                DEVICEOPTS="-drive file=$DASDDEV,if=none,id=disk0,format=raw -device virtio-blk-ccw,devno=$CHAN,drive=disk0 \
+                            -device virtio-scsi-ccw,id=scsi0,devno=fe.0.0001 -device scsi-hd,drive=scsi0"
+                ;;
+            *)
+                KERNEL_BIN=$(ls /boot/vmlinu*-$KERNEL_VER)
+                if [ -c /dev/kvm ]; then
+                    QEMUOPTS="$QEMU_OPTIONS -accel kvm -enable-kvm"
+                fi
+                ;;
+            esac
         else
             [ "$ARCH" ] || ARCH=$(uname -m)
             case $ARCH in
@@ -217,12 +252,14 @@ $_cgroup_args \
 $KERNEL_APPEND \
 "
 
-    QEMU_OPTIONS="-smp $QEMU_SMP \
+    QEMU_OPTIONS="$QEMUOPTS \
+-smp $QEMU_SMP \
 -net none \
 -m $QEMU_MEM \
 -nographic \
+$DEVICEOPTS \
 -kernel $KERNEL_BIN \
--drive format=raw,cache=unsafe,file=${TESTDIR}/rootdisk.img \
+-drive format=raw,cache=unsafe,file=${TESTDIR}/rootdisk.img,$DRIVEOPTS \
 $QEMU_OPTIONS \
 "
 
@@ -254,7 +291,8 @@ $QEMU_OPTIONS \
 run_nspawn() {
     [[ -d /run/systemd/system ]] || return 1
 
-    local _nspawn_cmd="$SYSTEMD_NSPAWN $NSPAWN_ARGUMENTS --register=no --kill-signal=SIGKILL --directory=$TESTDIR/$1 $PATH_TO_INIT $KERNEL_APPEND"
+    local _nspawn_cmd="/usr/bin/systemd-nspawn $NSPAWN_ARGUMENTS --register=no --kill-signal=SIGKILL --directory=$TESTDIR/$1 $PATH_TO_INIT $KERNEL_APPEND"
+
     if [[ "$NSPAWN_TIMEOUT" != "infinity" ]]; then
         _nspawn_cmd="timeout --foreground $NSPAWN_TIMEOUT $_nspawn_cmd"
     fi
@@ -493,10 +531,10 @@ EOF
 
 install_fsck() {
     dracut_install /sbin/fsck*
-    dracut_install -o /bin/fsck*
 
-    # fskc.reiserfs calls reiserfsck. so, install it
-    dracut_install -o reiserfsck
+    if rpm -q reiserfs; then
+        dracut_install reiserfsck
+    fi
 }
 
 install_dmevent() {
@@ -508,18 +546,36 @@ install_dmevent() {
         # see https://gitlab.com/debian-lvm/lvm2/blob/master/debian/patches/udev.patch
         inst_rules 55-dm.rules 60-persistent-storage-dm.rules 95-dm-notify.rules
     else
-        inst_rules 10-dm.rules 13-dm-disk.rules 95-dm-notify.rules
+        inst_rules 10-dm.rules 13-dm-disk.rules 95-dm-notify.rules 60-persistent-storage.rules 61-persistent-storage-compat.rules 99-systemd.rules
     fi
 }
 
 install_systemd() {
-    # install compiled files
-    local _ninja_bin=$(type -P ninja || type -P ninja-build)
-    if [[ -z "$_ninja_bin" ]]; then
-        dfatal "ninja was not found"
-        exit 1
-    fi
-    (set -x; DESTDIR=$initdir "$_ninja_bin" -C $BUILD_DIR install)
+    ORIGDIR=$(pwd)
+    cd $TEST_BASE_DIR/..
+    for i in $(find /usr/lib/systemd -type f); do
+            inst_simple $i
+    done
+    for i in $(find /usr/lib/systemd -type l); do
+            inst_symlink $i
+    done
+    for i in $( find /usr/lib/systemd -type d); do
+            [[ -d $i ]] || mkdir $i
+            for j in $(find $i -type f); do
+                     inst_simple $j
+            done
+    done
+    for i in $(rpm -ql systemd | sed -n '/usr\/bin/p'); do
+            inst_simple $i
+    done
+    for i in /usr/lib/udev /lib/udev /etc/udev; do
+        for j in $(find $i -type f); do
+            inst_simple $j
+        done
+    done
+
+    cd $ORIGDIR
+
     # remove unneeded documentation
     rm -fr $initdir/usr/share/{man,doc}
     # we strip binaries since debug symbols increase binaries size a lot
@@ -628,10 +684,13 @@ check_result_nspawn() {
     local ret=1
     local journald_report=""
     local pids=""
-    [[ -e $TESTDIR/$1/testok ]] && ret=0
+    if [[ -e $TESTDIR/$1/testok ]]; then
+      cp -a $TESTDIR/$1/testok /testok.$1
+      ret=0
+    fi
     [[ -f $TESTDIR/$1/failed ]] && cp -a $TESTDIR/$1/failed $TESTDIR
     cp -a $TESTDIR/$1/var/log/journal $TESTDIR
-    [[ -f $TESTDIR/failed ]] && cat $TESTDIR/failed
+    [[ -f $TESTDIR/failed ]] && mv $TESTDIR/failed /failed.nspawn
     ls -l $TESTDIR/journal/*/*.journal
     test -s $TESTDIR/failed && ret=$(($ret+1))
     [ -n "$TIMED_OUT" ] && ret=$(($ret+1))
@@ -644,12 +703,12 @@ check_result_qemu() {
     local ret=1
     mkdir -p $initdir
     mount ${LOOPDEV}p1 $initdir
-    [[ -e $initdir/testok ]] && ret=0
+    [[ -e $initdir/testok ]] && (cp -a $initdir/testok /testok.qemu; ret=0)
     [[ -f $initdir/failed ]] && cp -a $initdir/failed $TESTDIR
+    [[ -f $TESTDIR/failed ]] && mv $TESTDIR/failed /failed.qemu
     cp -a $initdir/var/log/journal $TESTDIR
     check_asan_reports "$initdir" || ret=$(($ret+1))
     umount $initdir
-    [[ -f $TESTDIR/failed ]] && cat $TESTDIR/failed
     ls -l $TESTDIR/journal/*/*.journal
     test -s $TESTDIR/failed && ret=$(($ret+1))
     [ -n "$TIMED_OUT" ] && ret=$(($ret+1))
@@ -686,10 +745,12 @@ install_execs() {
     sed -r -n 's|^Exec[a-zA-Z]*=[@+!-]*([^ ]+).*|\1|gp' $initdir/{$systemdsystemunitdir,$systemduserunitdir}/*.service \
          | sort -u | while read i; do
          # some {rc,halt}.local scripts and programs are okay to not exist, the rest should
-         # also, plymouth is pulled in by rescue.service, but even there the exit code
-         # is ignored; as it's not present on some distros, don't fail if it doesn't exist
-         dinfo "Attempting to install $i"
-         inst $i || [ "${i%.local}" != "$i" ] || [ "${i%systemd-update-done}" != "$i" ] || [ "/bin/plymouth" == "$i" ]
+         # dracut binary are not present with the same name in the installed system
+	 [[ "$i" =~ "/bin/dracut-" ]] && i=$(find /usr/lib/dracut -name ${i#/*/*}.sh)
+	 [[ -z "$i" ]] && continue
+         # wicked service requires pppd which might not be installed
+	 # quotaon service requires quotaon which might not be installed
+         inst $i || [ "${i%.local}" != "$i" ] || [ "${i%systemd-update-done}" != "$i" ] || [ "/usr/sbin/pppd" == "$i" ]  || [ "/usr/sbin/quotaon" == "$i" ]
      done
     )
 }
@@ -727,12 +788,12 @@ install_config_files() {
     inst /etc/sysconfig/init || :
     inst /etc/passwd
     inst /etc/shadow
-    inst /etc/login.defs
+    [[ "$LOOKS_LIKE_SUSE" ]] && inst /usr/etc/login.defs || inst /etc/login.defs
     inst /etc/group
     inst /etc/shells
     inst /etc/nsswitch.conf
     inst /etc/pam.conf || :
-    inst /etc/securetty || :
+    [[ "$LOOKS_LIKE_SUSE" ]] && inst /usr/etc/securetty || inst /etc/securetty || :
     inst /etc/os-release
     inst /etc/localtime
     # we want an empty environment
@@ -754,9 +815,6 @@ EOF
 
 install_basic_tools() {
     [[ $BASICTOOLS ]] && dracut_install $BASICTOOLS
-    dracut_install -o sushell
-    # in Debian ldconfig is just a shell script wrapper around ldconfig.real
-    dracut_install -o ldconfig.real
 }
 
 install_debug_tools() {
@@ -921,6 +979,15 @@ setup_basic_dirs() {
 }
 
 mask_supporting_services() {
+    # mask some services that we do not want to run in these tests
+    [[ -f /etc/systemd/system/systemd-hwdb-update.service ]] || ln -fs /dev/null /etc/systemd/system/systemd-hwdb-update.service
+    [[ -f /etc/systemd/system/systemd-journal-catalog-update.service ]] || ln -fs /dev/null /etc/systemd/system/systemd-journal-catalog-update.service
+    [[ -f /etc/systemd/system/systemd-networkd.service ]] || ln -fs /dev/null /etc/systemd/system/systemd-networkd.service
+    [[ -f /etc/systemd/system/systemd-networkd.socket ]] || ln -fs /dev/null /etc/systemd/system/systemd-networkd.socket
+    [[ -f /etc/systemd/system/systemd-resolved.service ]] || ln -fs /dev/null /etc/systemd/system/systemd-resolved.service
+}
+
+mask_supporting_services_nspawn() {
     # mask some services that we do not want to run in these tests
     ln -fs /dev/null $initdir/etc/systemd/system/systemd-hwdb-update.service
     ln -fs /dev/null $initdir/etc/systemd/system/systemd-journal-catalog-update.service
